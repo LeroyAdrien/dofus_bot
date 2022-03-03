@@ -33,3 +33,7 @@ def find_rectangles(screenshot, asset, threshold=0.3, return_scores=False):
         return rectangles, best_loc
 
     return rectangles
+
+
+if __name__ == "__main__":
+    print("Holà")
