@@ -9,6 +9,7 @@ from math import sqrt
 from pynput.mouse import Button
 from pynput.mouse import Controller as MouseController
 from pynput.keyboard import Controller as KeyboardController
+import sys
 
 import random
 
@@ -77,6 +78,7 @@ class Bot:
     me_position = None
     enemy_position = None
     range = 12
+    wait_a_bit = True
 
     def __init__(self, botting_time):
 
@@ -91,26 +93,18 @@ class Bot:
                                                   "sensitivity": 0.6,
                                                   "color": (0, 255, 0),
                                                   "mask": False},
-                                        "flax": {"path": "../assets/resource/flax_img.png",
-                                                 "sensitivity": 0.6,
-                                                 "color": (0, 255, 0),
-                                                  "mask": False},
                                         "barley": {"path": "../assets/resource/barley_img.png",
                                                    "sensitivity": 0.4,
                                                    "color": (0, 255, 0),
                                                   "mask": False},
                                         "oat": {"path": "../assets/resource/oat_img.png",
-                                                "sensitivity": 0.7,
+                                                "sensitivity": 0.4,
                                                 "color": (0, 255, 0),
                                                   "mask" : False},
                                         "rye": {"path": "../assets/resource/rye_img.png",
                                                 "sensitivity": 0.4,
                                                 "color": (0, 255, 0),
                                                 "mask": False},
-                                        "hop": {"path": "../assets/resource/hop_img.png",
-                                                "sensitivity": 1,
-                                                "color": (0, 255, 0),
-                                                  "mask": False},
                                         "faucher": {"path": '../assets/button/action_img.png',
                                                     "sensitivity": 0.90,
                                                     "color": (255, 0, 0),
@@ -124,6 +118,16 @@ class Bot:
                                                   "color": (0, 0, 255),
                                                   "mask": False}
                                         }
+
+        useless_resources = {  "flax": {"path": "../assets/resource/flax_img.png",
+                                                 "sensitivity": 0.6,
+                                                 "color": (0, 255, 0),
+                                                  "mask": False},
+                               "hop": {"path": "../assets/resource/hop_img.png",
+                                       "sensitivity": 1,
+                                       "color": (0, 255, 0),
+                                       "mask": False},
+                               }
 
         self.data_info_fight = {"strategic": {"path": "../assets/combat/strategic_img.png",
                                               "sensitivity": 0.95,
@@ -148,11 +152,11 @@ class Bot:
                                 "me": {"path": "../assets/combat/me/me_lr.png",
                                                "sensitivity": 0.7,
                                                "color": (0, 0, 255),
-                                               "mask" : False},
+                                               "mask": False},
                                 "turn": {"path": "../assets/combat/my_turn.png",
-                                                 "sensitivity": 0.94,
+                                                 "sensitivity": 0.96,
                                                  "color": (0, 0, 255),
-                                                 "mask" : True}}
+                                                 "mask": True}}
 
         for key in list(self.data_info_search_gather.keys()):
             if self.data_info_search_gather[key]["mask"] is False:
@@ -177,7 +181,7 @@ class Bot:
 
         # Specificity of the bot
         self.initialization_time = 3
-        self.mining_time = 5
+        self.mining_time = 2.2
 
         self.bot_state = BotState.INITIALIZING
 
@@ -196,6 +200,7 @@ class Bot:
             # 2-Analyze the screenshot (depending on your state)
             if self.bot_state is not BotState.FIGHTING:
                 for key in self.data_info_search_gather.keys():
+
                     # Determine rectangles and targets of each asset
                     self.rectangles[key] = detection.find_rectangles_template_match(self.screenshot,
                                                                                     self.assets[key],
@@ -206,6 +211,7 @@ class Bot:
 
             elif self.bot_state is BotState.FIGHTING:
                 for key in self.data_info_fight.keys():
+                    print(key)
                     self.rectangles[key] = detection.find_rectangles_template_match(self.screenshot,
                                                                                     self.assets[key],
                                                                                     threshold=self.data_info_fight[key]["sensitivity"],
@@ -314,22 +320,21 @@ class Bot:
         # Adding the resources to the list
         if len(self.targets["wheat"]) > 0:
             resource_targets += self.targets["wheat"]
-        if len(self.targets["flax"]) > 0:
-            resource_targets += self.targets["flax"]
-        if len(self.targets["hop"]) > 0:
-            resource_targets += self.targets["hop"]
+#        if len(self.targets["flax"]) > 0:
+#            resource_targets += self.targets["flax"]
+#        if len(self.targets["hop"]) > 0:
+#            resource_targets += self.targets["hop"]
         if len(self.targets["barley"]) > 0:
             resource_targets += self.targets["barley"]
+        if len(self.targets["oat"]) > 0:
+            resource_targets += self.targets["oat"]
 
         if len(self.click_history) > 0:
             order = geometry.targets_ordered_by_distance(self.click_history[-1], resource_targets)
         else:
-            order = geometry.targets_ordered_by_distance((gui.position()[0] *2, gui.position()[1] *2), resource_targets)
+            order = geometry.targets_ordered_by_distance((gui.position()[0] * 2, gui.position()[1] * 2), resource_targets)
 
         resource_targets = [resource_targets[i] for i in order]
-
-        if len(self.targets["oat"]) > 0:
-            resource_targets = self.targets["oat"] + resource_targets
 
         if self.failure_counter >= len(resource_targets):
             self.failure_counter = 0
@@ -430,7 +435,14 @@ class Bot:
             # If it is my turn, that we can see the socles and we spotted some
 
             if len(self.targets["turn"]) > 0:
+
+                # First analyse the sreenshot once more
+                if self.wait_a_bit is True:
+                    self.wait_a_bit = False
+                    return None
+
                 print("It is my turn")
+
 
                 print(f"Enemy found: {len(self.targets['socle_enemy']) > 0}"
                       , f"Correct Display: {len(self.targets['socle_activate']) == 0}"
@@ -457,8 +469,6 @@ class Bot:
                                              me,
                                              enemy)
 
-                    detection.add_targets(self.screenshot, path)
-
                     # If you found a path between you and the opponent
                     if path is not None:
 
@@ -475,6 +485,7 @@ class Bot:
                             gui.moveTo(x=0, y=10)
 
                         else:
+                            gui.sleep(2)
                             print("directement adjacent")
                             pass
 
@@ -485,6 +496,7 @@ class Bot:
                             keyboard.press("a")
                             keyboard.release("a")
                             gui.moveTo(x=enemy[0] / 2, y=enemy[1] / 2)
+                            gui.moveTo(x=path[-1][0] / 2, y=path[-1][1] / 2)
                             gui.sleep(0.5)
                             mouse.click(Button.left)
                             gui.moveTo(x=0, y=10)
@@ -492,10 +504,15 @@ class Bot:
                 elif len(self.targets["socle_me"]) > 0 and len(self.targets["socle_activate"]) == 0 and self.map_graph is not None:
                     # Find a position that is adjacent to your own position
                     self.me_position = self.targets["socle_me"][0]
-                    closest_me = geometry.targets_ordered_by_distance(self.me_position, list(self.map_graph.nodes))[2]
-                    adjacent = list(self.map_graph.nodes)[closest_me]
+
+                    distances = np.array([geometry.calculate_distance(self.me_position, other) for other in list(self.map_graph.nodes)])
+                    adjacent = np.where((distances < 100) & (distances > 95))[0]
+                    if len(adjacent)>0:
+                        adjacent = list(self.map_graph.nodes)[adjacent[0]]
+                    else:
+                        adjacent = (0, 0)
                     # Create an invocation at that location
-                    sleep(2)
+                    sleep(0.5)
                     keyboard.press("é")
                     keyboard.release("é")
                     gui.moveTo(x=adjacent[0] / 2, y=adjacent[1] / 2)
@@ -505,7 +522,8 @@ class Bot:
 
                 keyboard.press("v")
                 keyboard.release("v")
-                sleep(5)
+                self.wait_a_bit = True
+                sleep(1)
 
         elif self.bot_combat_state == CombatState.ENDED:
             print("Combat ended")
@@ -518,4 +536,4 @@ class Bot:
 
 
 if __name__ == "__main__":
-    a = Bot(6500)
+    a = Bot(int(sys.argv[1]))
