@@ -10,8 +10,22 @@ from pynput.mouse import Button
 from pynput.mouse import Controller as MouseController
 from pynput.keyboard import Controller as KeyboardController
 import sys
+import json
+from action_sequence import execute_mouseclicks
 
-import random
+
+def sleep_random(mini, maxi):
+    rand = np.random.random() * (maxi - mini) + maxi
+    gui.sleep(rand)
+
+
+gui.sleep_random = sleep_random
+
+class GatheringMap:
+
+    """ Stores path dependeing on gathering position"""
+
+    ASTRUB = 1
 
 
 class BotState:
@@ -21,6 +35,15 @@ class BotState:
     SEARCHING = 1
     GATHERING = 2
     FIGHTING = 3
+    TRIP = 4
+
+
+class DroppingState:
+
+    GOINGTO = 0
+    TALKING = 1
+    DRAGGING = 2
+    GOINGBACK = 3
 
 
 class CombatState:
@@ -48,6 +71,7 @@ class Bot:
     # States of the BOT
     bot_state = None
     bot_combat_state = CombatState.PLACEMENT
+    bot_dropping_state = None
 
     # Positions
     click_history = []
@@ -63,8 +87,9 @@ class Bot:
     current_time = None
 
     # Specificity of the bot
-    mining_time = None
-    initialization_time = None
+    mining_time = 0
+    initialization_time = 3
+    step_time = 0
     time_since_last_action = None
     # Allows to count the number of wheat clicked before success (to not get stuck on the first resource)
     failure_counter = 0
@@ -77,10 +102,18 @@ class Bot:
     map_graph = None
     me_position = None
     enemy_position = None
-    range = 12
+    range = 13
     wait_a_bit = True
 
-    def __init__(self, botting_time):
+    # Moving
+    trip_to = {}
+    talk_banker = {}
+    drag_items = {}
+    trip_back = {}
+    between_trip_time = 2000
+    triptodone = False
+
+    def __init__(self, botting_time, map_number):
 
         # Attributes
 
@@ -119,7 +152,7 @@ class Bot:
                                                   "mask": False}
                                         }
 
-        useless_resources = {  "flax": {"path": "../assets/resource/flax_img.png",
+        useless_resources = {"flax": {"path": "../assets/resource/flax_img.png",
                                                  "sensitivity": 0.6,
                                                  "color": (0, 255, 0),
                                                   "mask": False},
@@ -138,7 +171,7 @@ class Bot:
                                                "color": (0, 0, 255),
                                                "mask": False},
                                 "socle_activate": {"path": "../assets/combat/activate_socles.png",
-                                                   "sensitivity": 0.90,
+                                                   "sensitivity": 0.80,
                                                    "color": (0, 0, 255),
                                                    "mask": False},
                                 "socle_me": {"path": "../assets/combat/me_socle.png",
@@ -158,6 +191,42 @@ class Bot:
                                                  "color": (0, 0, 255),
                                                  "mask": True}}
 
+        self.data_info_trip = {"confirmation": {"path": "../assets/trips/confirmation.png",
+                                              "sensitivity": 0.96,
+                                              "color": (0, 0, 255),
+                                              "mask": False},
+                               "banker_ll": {"path": "../assets/trips/banker_ll.png",
+                                             "sensitivity": 0.8,
+                                             "color": (0, 0, 255),
+                                             "mask": False},
+                               "banker_lr": {"path": "../assets/trips/banker_lr.png",
+                                            "sensitivity": 0.8,
+                                            "color": (0, 0, 255),
+                                            "mask": False},
+                               "parler": {"path": "../assets/trips/speak.png",
+                                             "sensitivity": 0.8,
+                                             "color": (0, 0, 255),
+                                             "mask": False},
+                               }
+
+        if int(map_number) == GatheringMap.ASTRUB:
+
+            f = open("../assets/trips/field2bank_astrub.json")
+            self.trip_to = json.load(f)
+            f.close
+
+            f = open("../assets/trips/banker_validate.json")
+            self.talk_banker = json.load(f)
+            f.close
+
+            f = open("../assets/trips/dragging_astrub.json")
+            self.drag_items = json.load(f)
+            f.close
+
+            f = open("../assets/trips/bank2field_astrub.json")
+            self.trip_back = json.load(f)
+            f.close
+
         for key in list(self.data_info_search_gather.keys()):
             if self.data_info_search_gather[key]["mask"] is False:
                 self.assets[key] = cv.imread(self.data_info_search_gather[key]["path"], cv.IMREAD_COLOR)
@@ -175,13 +244,20 @@ class Bot:
             self.rectangles[key] = None
             self.targets[key] = None
 
+        for key in list(self.data_info_trip.keys()):
+            if self.data_info_trip[key]["mask"] is False:
+                self.assets[key] = cv.imread(self.data_info_trip[key]["path"], cv.IMREAD_COLOR)
+            else:
+                self.assets[key] = cv.imread(self.data_info_trip[key]["path"], cv.IMREAD_UNCHANGED)
+            self.rectangles[key] = None
+            self.targets[key] = None
+
         # Information regarding time
         self.start_time = time()
+        self.step_time = self.start_time
         self.time_since_last_action = 0
 
         # Specificity of the bot
-        self.initialization_time = 3
-        self.mining_time = 2.2
 
         self.bot_state = BotState.INITIALIZING
 
@@ -198,7 +274,7 @@ class Bot:
             self.screenshot = cv.cvtColor(self.screenshot, cv.COLOR_RGB2BGR)
 
             # 2-Analyze the screenshot (depending on your state)
-            if self.bot_state is not BotState.FIGHTING:
+            if self.bot_state is BotState.SEARCHING or self.bot_state is BotState.GATHERING:
                 for key in self.data_info_search_gather.keys():
 
                     # Determine rectangles and targets of each asset
@@ -211,7 +287,6 @@ class Bot:
 
             elif self.bot_state is BotState.FIGHTING:
                 for key in self.data_info_fight.keys():
-                    print(key)
                     self.rectangles[key] = detection.find_rectangles_template_match(self.screenshot,
                                                                                     self.assets[key],
                                                                                     threshold=self.data_info_fight[key]["sensitivity"],
@@ -219,10 +294,21 @@ class Bot:
                     # Determine targets of rectangles
                     self.targets[key] = geometry.find_targets(self.rectangles[key], random=False)
 
+            elif self.bot_state is BotState.TRIP:
+                for key in self.data_info_trip.keys():
+                    self.rectangles[key] = detection.find_rectangles_template_match(self.screenshot,
+                                                                                    self.assets[key],
+                                                                                    threshold=self.data_info_trip[key][
+                                                                                        "sensitivity"],
+                                                                                    mask=self.data_info_trip[key][
+                                                                                        "mask"])
+                    # Determine targets of rectangles
+                    self.targets[key] = geometry.find_targets(self.rectangles[key], random=False)
+
                 # Optional: Display the annotated screenshot
             if DEBUG:
                 # Add annotations on the screenshot
-                if self.bot_state is not BotState.FIGHTING:
+                if self.bot_state is BotState.SEARCHING or self.bot_state is BotState.GATHERING:
                     for key in self.data_info_search_gather.keys():
                         # Show rectangles
                         self.screenshot = detection.add_rectangles(self.screenshot,
@@ -235,6 +321,13 @@ class Bot:
                         self.screenshot = detection.add_rectangles(self.screenshot,
                                                                    self.rectangles[key],
                                                                    self.data_info_fight[key]["color"])
+
+                elif self.bot_state is BotState.TRIP:
+                    for key in self.data_info_trip.keys():
+                        # Show rectangles
+                        self.screenshot = detection.add_rectangles(self.screenshot,
+                                                                   self.rectangles[key],
+                                                                   self.data_info_trip[key]["color"])
 
                 # Resize for better visibility
                 self.screenshot = detection.add_targets(self.screenshot, self.click_history)
@@ -293,6 +386,8 @@ class Bot:
             # If elapsed time greater than the initialization time
             if self.current_time - self.start_time >= self.initialization_time:
                 self.bot_state = BotState.SEARCHING
+        elif self.bot_state == BotState.TRIP:
+            self.drop_stuff()
 
         elif self.bot_state == BotState.SEARCHING:
             self.search_and_gather_resources()
@@ -303,7 +398,67 @@ class Bot:
         elif self.bot_state == BotState.FIGHTING:
             self.destroy_opponent()
 
+
+
         pass
+
+    def drop_stuff(self):
+
+        mouse = MouseController()
+
+        if self.bot_dropping_state == DroppingState.GOINGTO:
+
+            if self.triptodone is False:
+                execute_mouseclicks(self.trip_to)
+                self.triptodone = True
+
+            if self.triptodone is True:
+                bankers = []
+                if len(self.targets["banker_ll"]) > 0:
+                    bankers += self.targets["banker_ll"]
+                if len(self.targets["banker_lr"]) > 0:
+                    bankers += self.targets["banker_lr"]
+
+                if self.failure_counter >= len(bankers):
+                    self.failure_counter = 0
+
+                # If you can speak to the banker
+                if len(self.targets["parler"]) > 0:
+                    target_pos = self.targets["parler"][0]
+                    print(f'Clicking "parler" at x:{target_pos[0]} y:{target_pos[1]}')
+                    # move the mouse
+                    gui.moveTo(x=target_pos[0] / 2, y=target_pos[1] / 2)
+                    mouse.click(Button.left)
+                    self.failure_counter = 0
+                    return None
+
+                # If there are resources
+                if len(bankers) > 0:
+                    target_pos = bankers[self.failure_counter]
+                    print(f'Clicking Resource at x:{target_pos[0]} y:{target_pos[1]} attempt number:{self.failure_counter}')
+                    # move the mouse
+                    gui.moveTo(x=target_pos[0] / 2, y=target_pos[1] / 2)
+                    # short pause to let the mouse movement complete
+                    mouse.click(Button.left)
+                    self.click_tmp = (target_pos[0], target_pos[1])
+                    self.failure_counter += 1
+
+                # if you talked to it correctly
+                if len(self.targets["confirmation"]):
+                    execute_mouseclicks(self.talk_banker)
+                    self.bot_dropping_state = DroppingState.DRAGGING
+
+        if self.bot_dropping_state == DroppingState.DRAGGING:
+            gui.sleep(1)
+            execute_mouseclicks(self.drag_items)
+            print("items dragged")
+            self.bot_dropping_state = DroppingState.GOINGBACK
+
+        if self.bot_dropping_state == DroppingState.GOINGBACK:
+            execute_mouseclicks(self.trip_back)
+            self.bot_state = BotState.SEARCHING
+            self.step_time = self.current_time
+
 
     def search_and_gather_resources(self):
 
@@ -323,11 +478,13 @@ class Bot:
 #        if len(self.targets["flax"]) > 0:
 #            resource_targets += self.targets["flax"]
 #        if len(self.targets["hop"]) > 0:
-#            resource_targets += self.targets["hop"]
+#             resource_targets += self.targets["hop"]
         if len(self.targets["barley"]) > 0:
             resource_targets += self.targets["barley"]
         if len(self.targets["oat"]) > 0:
             resource_targets += self.targets["oat"]
+        if len(self.targets["rye"]) > 0:
+            resource_targets += self.targets["rye"]
 
         if len(self.click_history) > 0:
             order = geometry.targets_ordered_by_distance(self.click_history[-1], resource_targets)
@@ -338,6 +495,17 @@ class Bot:
 
         if self.failure_counter >= len(resource_targets):
             self.failure_counter = 0
+
+        # If time to drop stuff is elapsed
+        print("Time since last drop: ", self.current_time - self.step_time)
+        if self.current_time - self.step_time > self.between_trip_time:
+            print(self.current_time - self.step_time)
+            print("Time to drop stuff")
+            self.bot_state = BotState.TRIP
+            self.bot_dropping_state = DroppingState.GOINGTO
+            self.failure_counter = 0
+
+            return None
 
         # If there is a button than prevents collecting resources
         if len(self.targets["ok"]) > 0:
@@ -424,7 +592,7 @@ class Bot:
         # Behave according to the combat state
         if self.bot_combat_state == CombatState.PLACEMENT:
             """ Click on the closest target to the bot and validate READY"""
-            sleep(2)
+            sleep(0.5)
             print("Combat started")
             keyboard.press("v")
             keyboard.release("v")
@@ -480,16 +648,15 @@ class Bot:
                             new_pos = path[3]
                             # You click on the coordinate
                             gui.moveTo(x=new_pos[0] / 2, y=new_pos[1] / 2)
-                            gui.sleep(1)
+                            gui.sleep_random(0.05, 0.95)
                             mouse.click(Button.left)
                             gui.moveTo(x=0, y=10)
 
                         else:
-                            gui.sleep(2)
+                            gui.sleep_random(0.05, 0.95)
                             print("directement adjacent")
                             pass
 
-                        sleep(2)
                         # You check if you are close enough to hit the opponent
                         if len(path) <= self.range:
                             print("In range")
@@ -497,8 +664,17 @@ class Bot:
                             keyboard.release("a")
                             gui.moveTo(x=enemy[0] / 2, y=enemy[1] / 2)
                             gui.moveTo(x=path[-1][0] / 2, y=path[-1][1] / 2)
-                            gui.sleep(0.5)
+                            gui.sleep_random(0.05, 0.5)
                             mouse.click(Button.left)
+                            gui.sleep_random(0.05, 0.5)
+
+                            keyboard.press("a")
+                            keyboard.release("a")
+                            gui.moveTo(x=enemy[0] / 2, y=enemy[1] / 2)
+                            gui.moveTo(x=path[-1][0] / 2, y=path[-1][1] / 2)
+                            gui.sleep_random(0.05, 0.5)
+                            mouse.click(Button.left)
+
                             gui.moveTo(x=0, y=10)
 
                 elif len(self.targets["socle_me"]) > 0 and len(self.targets["socle_activate"]) == 0 and self.map_graph is not None:
@@ -516,7 +692,7 @@ class Bot:
                     keyboard.press("é")
                     keyboard.release("é")
                     gui.moveTo(x=adjacent[0] / 2, y=adjacent[1] / 2)
-                    gui.sleep(0.5)
+                    gui.sleep_random(0.05, 0.5)
                     mouse.click(Button.left)
                     gui.moveTo(x=0, y=10)
 
@@ -536,4 +712,4 @@ class Bot:
 
 
 if __name__ == "__main__":
-    a = Bot(int(sys.argv[1]))
+    a = Bot(int(sys.argv[1]), sys.argv[2])
