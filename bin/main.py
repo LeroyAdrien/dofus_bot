@@ -25,7 +25,10 @@ class GatheringMap:
 
     """ Stores path dependeing on gathering position"""
 
+    NONE = 0
     ASTRUB = 1
+    BONTA = 2
+    BONTA_OAT = 3
 
 
 class BotState:
@@ -40,10 +43,12 @@ class BotState:
 
 class DroppingState:
 
-    GOINGTO = 0
-    TALKING = 1
-    DRAGGING = 2
-    GOINGBACK = 3
+    USE_CONSUMABLE = 0
+    FIELD2FARM = 1
+    FARM2BANK = 2
+    TALKING = 3
+    DRAGGING = 4
+    BANK2FIELD = 5
 
 
 class CombatState:
@@ -64,6 +69,15 @@ class Bot:
     """
 
     # Attributes of the class
+
+    # Controllers
+    keyboard = None
+    mouse = None
+
+    # data info of assets
+    data_info_trip = {}
+    data_info_search_gather = {}
+    data_info_fight = {}
 
     # Assets
     assets = {}
@@ -88,6 +102,7 @@ class Bot:
 
     # Specificity of the bot
     mining_time = 0
+    botting_time = 0
     initialization_time = 3
     step_time = 0
     time_since_last_action = None
@@ -106,17 +121,21 @@ class Bot:
     wait_a_bit = True
 
     # Moving
-    trip_to = {}
+    map_number = 0
+    field2farm = {}
+    use_consumable = {}
+    farm2bank = {}
     talk_banker = {}
     drag_items = {}
-    trip_back = {}
-    between_trip_time = 2000
-    triptodone = False
+    bank2field = {}
+
+    between_trip_time = 1800
 
     def __init__(self, botting_time, map_number):
 
-        # Attributes
-
+        # Load controllers
+        self.keyboard = KeyboardController()
+        self.mouse = MouseController()
         # Load Assets
         # For each item we will have a dictionary of rectangles, targets and assets
 
@@ -127,25 +146,25 @@ class Bot:
                                                   "color": (0, 255, 0),
                                                   "mask": False},
                                         "barley": {"path": "../assets/resource/barley_img.png",
-                                                   "sensitivity": 0.4,
+                                                   "sensitivity": 0.6,
                                                    "color": (0, 255, 0),
-                                                  "mask": False},
+                                                   "mask": False},
                                         "oat": {"path": "../assets/resource/oat_img.png",
-                                                "sensitivity": 0.4,
+                                                "sensitivity": 0.5,
                                                 "color": (0, 255, 0),
-                                                  "mask" : False},
+                                                "mask": False},
                                         "rye": {"path": "../assets/resource/rye_img.png",
-                                                "sensitivity": 0.4,
+                                                "sensitivity": 0.5,
                                                 "color": (0, 255, 0),
                                                 "mask": False},
                                         "faucher": {"path": '../assets/button/action_img.png',
                                                     "sensitivity": 0.90,
                                                     "color": (255, 0, 0),
-                                                  "mask": False},
+                                                    "mask": False},
                                         "ok": {"path": '../assets/button/ok_img.png',
                                                "sensitivity": 0.75,
                                                "color": (0, 0, 255),
-                                                  "mask": False},
+                                               "mask": False},
                                         "enemy": {"path": '../assets/combat/ready_img.png',
                                                   "sensitivity": 0.92,
                                                   "color": (0, 0, 255),
@@ -153,14 +172,14 @@ class Bot:
                                         }
 
         useless_resources = {"flax": {"path": "../assets/resource/flax_img.png",
-                                                 "sensitivity": 0.6,
-                                                 "color": (0, 255, 0),
-                                                  "mask": False},
-                               "hop": {"path": "../assets/resource/hop_img.png",
-                                       "sensitivity": 1,
-                                       "color": (0, 255, 0),
-                                       "mask": False},
-                               }
+                                              "sensitivity": 0.6,
+                                              "color": (0, 255, 0),
+                                              "mask": False},
+                             "hop": {"path": "../assets/resource/hop_img.png",
+                                     "sensitivity": 1,
+                                     "color": (0, 255, 0),
+                                     "mask": False},
+                           }
 
         self.data_info_fight = {"strategic": {"path": "../assets/combat/strategic_img.png",
                                               "sensitivity": 0.95,
@@ -191,41 +210,146 @@ class Bot:
                                                  "color": (0, 0, 255),
                                                  "mask": True}}
 
-        self.data_info_trip = {"confirmation": {"path": "../assets/trips/confirmation.png",
-                                              "sensitivity": 0.96,
+        self.map_number = int(map_number)
+
+        if self.map_number is GatheringMap.ASTRUB:
+
+            self.data_info_trip = {"confirmation": {"path": "../assets/trips/confirmation.png",
+                                                    "sensitivity": 0.96,
+                                                    "color": (0, 0, 255),
+                                                    "mask": False},
+                                   "banker_ll": {"path": "../assets/trips/astrub/banker_ll.png",
+                                                 "sensitivity": 0.8,
+                                                 "color": (0, 0, 255),
+                                                 "mask": False},
+                                   "banker_lr": {"path": "../assets/trips/astrub/banker_lr.png",
+                                                 "sensitivity": 0.8,
+                                                 "color": (0, 0, 255),
+                                                 "mask": False},
+                                   "parler": {"path": "../assets/trips/speak.png",
+                                              "sensitivity": 0.8,
                                               "color": (0, 0, 255),
                                               "mask": False},
-                               "banker_ll": {"path": "../assets/trips/banker_ll.png",
-                                             "sensitivity": 0.8,
-                                             "color": (0, 0, 255),
-                                             "mask": False},
-                               "banker_lr": {"path": "../assets/trips/banker_lr.png",
-                                            "sensitivity": 0.8,
-                                            "color": (0, 0, 255),
-                                            "mask": False},
-                               "parler": {"path": "../assets/trips/speak.png",
-                                             "sensitivity": 0.8,
-                                             "color": (0, 0, 255),
-                                             "mask": False},
-                               }
+                                   }
 
-        if int(map_number) == GatheringMap.ASTRUB:
-
-            f = open("../assets/trips/field2bank_astrub.json")
-            self.trip_to = json.load(f)
+            print("Selected Astrub")
+            f = open("../assets/trips/astrub/use_consumable.json")
+            self.use_consumable = json.load(f)
             f.close
 
-            f = open("../assets/trips/banker_validate.json")
+            f = open("../assets/trips/astrub/field2farm_astrub.json")
+            self.field2farm = json.load(f)
+            f.close
+
+            f = open("../assets/trips/astrub/farm2bank.json")
+            self.farm2bank = json.load(f)
+            f.close
+
+            f = open("../assets/trips/astrub/banker_validate.json")
             self.talk_banker = json.load(f)
             f.close
 
-            f = open("../assets/trips/dragging_astrub.json")
+            f = open("../assets/trips/astrub/dragging_astrub.json")
             self.drag_items = json.load(f)
             f.close
 
-            f = open("../assets/trips/bank2field_astrub.json")
-            self.trip_back = json.load(f)
+            f = open("../assets/trips/astrub/bank2field_astrub.json")
+            self.bank2field = json.load(f)
             f.close
+
+        elif self.map_number == GatheringMap.BONTA:
+
+            self.data_info_trip = {"confirmation": {"path": "../assets/trips/confirmation.png",
+                                                    "sensitivity": 0.96,
+                                                    "color": (0, 0, 255),
+                                                    "mask": False},
+                                   "banker_lr": {"path": "../assets/trips/bonta/banker_lr.png",
+                                                 "sensitivity": 0.8,
+                                                 "color": (0, 0, 255),
+                                                 "mask": False},
+                                   "banker_ll": {"path": "../assets/trips/bonta/banker_ll.png",
+                                                 "sensitivity": 0.8,
+                                                 "color": (0, 0, 255),
+                                                 "mask": False},
+                                   "parler": {"path": "../assets/trips/speak.png",
+                                              "sensitivity": 0.8,
+                                              "color": (0, 0, 255),
+                                              "mask": False},
+                                   }
+
+            print("Selected Astrub")
+            f = open("../assets/trips/bonta/use_consumable.json")
+            self.use_consumable = json.load(f)
+            f.close
+
+            f = open("../assets/trips/bonta/field2farm_bonta.json")
+            self.field2farm = json.load(f)
+            f.close
+
+            f = open("../assets/trips/bonta/farm2bank_bonta.json")
+            self.farm2bank = json.load(f)
+            f.close
+
+            f = open("../assets/trips/bonta/banker_validate.json")
+            self.talk_banker = json.load(f)
+            f.close
+
+            f = open("../assets/trips/bonta/dragging_bonta.json")
+            self.drag_items = json.load(f)
+            f.close
+
+            f = open("../assets/trips/bonta/bank2field_bonta.json")
+            self.bank2field = json.load(f)
+            f.close
+
+        elif self.map_number == GatheringMap.BONTA_OAT:
+
+            self.data_info_trip = {"confirmation": {"path": "../assets/trips/confirmation.png",
+                                                    "sensitivity": 0.96,
+                                                    "color": (0, 0, 255),
+                                                    "mask": False},
+                                   "banker_lr": {"path": "../assets/trips/bonta_oat/banker_lr.png",
+                                                 "sensitivity": 0.8,
+                                                 "color": (0, 0, 255),
+                                                 "mask": False},
+                                   "banker_ll": {"path": "../assets/trips/bonta_oat/banker_ll.png",
+                                                 "sensitivity": 0.8,
+                                                 "color": (0, 0, 255),
+                                                 "mask": False},
+                                   "parler": {"path": "../assets/trips/speak.png",
+                                              "sensitivity": 0.8,
+                                              "color": (0, 0, 255),
+                                              "mask": False},
+                                   }
+
+            print("Selected Astrub")
+            f = open("../assets/trips/bonta_oat/use_consumable.json")
+            self.use_consumable = json.load(f)
+            f.close
+
+            f = open("../assets/trips/bonta_oat/field2farm_bonta.json")
+            self.field2farm = json.load(f)
+            f.close
+
+            f = open("../assets/trips/bonta_oat/farm2bank_bonta.json")
+            self.field2bank = json.load(f)
+            f.close
+
+            f = open("../assets/trips/bonta_oat/banker_validate.json")
+            self.talk_banker = json.load(f)
+            f.close
+
+            f = open("../assets/trips/bonta_oat/dragging_bonta.json")
+            self.drag_items = json.load(f)
+            f.close
+
+            f = open("../assets/trips/bonta_oat/bank2field_bonta.json")
+            self.bank2field = json.load(f)
+            f.close
+
+
+        else:
+            pass
 
         for key in list(self.data_info_search_gather.keys()):
             if self.data_info_search_gather[key]["mask"] is False:
@@ -256,14 +380,18 @@ class Bot:
         self.start_time = time()
         self.step_time = self.start_time
         self.time_since_last_action = 0
+        self.botting_time = botting_time
 
-        # Specificity of the bot
+        # LAUNCHING THE BOT
 
         self.bot_state = BotState.INITIALIZING
+        self.bot_state = BotState.SEARCHING
+        self.bot_state = BotState.TRIP
+        self.bot_dropping_state = DroppingState.FARM2BANK
 
         DEBUG = True
 
-        while time() - self.start_time < botting_time:
+        while True:
             self.user_mouse = gui.position()
             self.current_time = time()
             # Constant Loop
@@ -386,6 +514,7 @@ class Bot:
             # If elapsed time greater than the initialization time
             if self.current_time - self.start_time >= self.initialization_time:
                 self.bot_state = BotState.SEARCHING
+
         elif self.bot_state == BotState.TRIP:
             self.drop_stuff()
 
@@ -398,67 +527,74 @@ class Bot:
         elif self.bot_state == BotState.FIGHTING:
             self.destroy_opponent()
 
-
-
-        pass
-
     def drop_stuff(self):
 
         mouse = MouseController()
 
-        if self.bot_dropping_state == DroppingState.GOINGTO:
+        if self.current_time - self.start_time > self.botting_time:
+            quit()
 
-            if self.triptodone is False:
-                execute_mouseclicks(self.trip_to)
-                self.triptodone = True
+        if self.bot_dropping_state == DroppingState.USE_CONSUMABLE:
+            execute_mouseclicks(self.use_consumable)
+            sleep(5)
+            self.bot_dropping_state = DroppingState.FIELD2FARM
 
-            if self.triptodone is True:
-                bankers = []
-                if len(self.targets["banker_ll"]) > 0:
-                    bankers += self.targets["banker_ll"]
-                if len(self.targets["banker_lr"]) > 0:
-                    bankers += self.targets["banker_lr"]
+        if self.bot_dropping_state == DroppingState.FIELD2FARM:
+            execute_mouseclicks(self.field2farm)
+            sleep(5)
+            self.bot_dropping_state = DroppingState.FARM2BANK
 
-                if self.failure_counter >= len(bankers):
-                    self.failure_counter = 0
+        elif self.bot_dropping_state == DroppingState.FARM2BANK:
+            execute_mouseclicks(self.farm2bank)
+            self.bot_dropping_state = DroppingState.TALKING
 
-                # If you can speak to the banker
-                if len(self.targets["parler"]) > 0:
-                    target_pos = self.targets["parler"][0]
-                    print(f'Clicking "parler" at x:{target_pos[0]} y:{target_pos[1]}')
-                    # move the mouse
-                    gui.moveTo(x=target_pos[0] / 2, y=target_pos[1] / 2)
-                    mouse.click(Button.left)
-                    self.failure_counter = 0
-                    return None
+        elif self.bot_dropping_state == DroppingState.TALKING:
 
-                # If there are resources
-                if len(bankers) > 0:
-                    target_pos = bankers[self.failure_counter]
-                    print(f'Clicking Resource at x:{target_pos[0]} y:{target_pos[1]} attempt number:{self.failure_counter}')
-                    # move the mouse
-                    gui.moveTo(x=target_pos[0] / 2, y=target_pos[1] / 2)
-                    # short pause to let the mouse movement complete
-                    mouse.click(Button.left)
-                    self.click_tmp = (target_pos[0], target_pos[1])
-                    self.failure_counter += 1
+            bankers = []
+            if len(self.targets["banker_ll"]) > 0:
+                bankers += self.targets["banker_ll"]
+            if len(self.targets["banker_lr"]) > 0:
+                bankers += self.targets["banker_lr"]
 
-                # if you talked to it correctly
-                if len(self.targets["confirmation"]):
-                    execute_mouseclicks(self.talk_banker)
-                    self.bot_dropping_state = DroppingState.DRAGGING
+            if self.failure_counter >= len(bankers):
+                self.failure_counter = 0
 
-        if self.bot_dropping_state == DroppingState.DRAGGING:
+            # If you can speak to the banker
+            if len(self.targets["parler"]) > 0:
+                target_pos = self.targets["parler"][0]
+                print(f'Clicking "parler" at x:{target_pos[0]} y:{target_pos[1]}')
+                # move the mouse
+                gui.moveTo(x=target_pos[0] / 2, y=target_pos[1] / 2)
+                mouse.click(Button.left)
+                self.failure_counter = 0
+                return None
+
+            # If there are resources
+            if len(bankers) > 0:
+                target_pos = bankers[self.failure_counter]
+                print(f'Clicking Resource at x:{target_pos[0]} y:{target_pos[1]} attempt number:{self.failure_counter}')
+                # move the mouse
+                gui.moveTo(x=target_pos[0] / 2, y=target_pos[1] / 2)
+                # short pause to let the mouse movement complete
+                mouse.click(Button.left)
+                self.click_tmp = (target_pos[0], target_pos[1])
+                self.failure_counter += 1
+
+            # if you talked to it correctly
+            if len(self.targets["confirmation"]):
+                execute_mouseclicks(self.talk_banker)
+                self.bot_dropping_state = DroppingState.DRAGGING
+
+        elif self.bot_dropping_state == DroppingState.DRAGGING:
             gui.sleep(1)
             execute_mouseclicks(self.drag_items)
             print("items dragged")
-            self.bot_dropping_state = DroppingState.GOINGBACK
+            self.bot_dropping_state = DroppingState.BANK2FIELD
 
-        if self.bot_dropping_state == DroppingState.GOINGBACK:
-            execute_mouseclicks(self.trip_back)
+        if self.bot_dropping_state == DroppingState.BANK2FIELD:
+            execute_mouseclicks(self.bank2field)
             self.bot_state = BotState.SEARCHING
             self.step_time = self.current_time
-
 
     def search_and_gather_resources(self):
 
@@ -471,6 +607,8 @@ class Bot:
 
         mouse = MouseController()
         resource_targets = []
+
+        print("search and gather resources")
 
         # Adding the resources to the list
         if len(self.targets["wheat"]) > 0:
@@ -497,15 +635,16 @@ class Bot:
             self.failure_counter = 0
 
         # If time to drop stuff is elapsed
-        print("Time since last drop: ", self.current_time - self.step_time)
-        if self.current_time - self.step_time > self.between_trip_time:
-            print(self.current_time - self.step_time)
-            print("Time to drop stuff")
-            self.bot_state = BotState.TRIP
-            self.bot_dropping_state = DroppingState.GOINGTO
-            self.failure_counter = 0
+        if self.map_number is not GatheringMap.NONE:
+            print("Time since last drop: ", self.current_time - self.step_time)
+            if self.current_time - self.step_time > self.between_trip_time:
+                print(self.current_time - self.step_time)
+                print("Time to drop stuff")
+                self.bot_state = BotState.TRIP
+                self.bot_dropping_state = DroppingState.USE_CONSUMABLE
+                self.failure_counter = 0
 
-            return None
+                return None
 
         # If there is a button than prevents collecting resources
         if len(self.targets["ok"]) > 0:
@@ -543,6 +682,8 @@ class Bot:
 
         # If there are resources
         if len(resource_targets) > 0:
+
+            print("resources targets")
             target_pos = resource_targets[self.failure_counter]
             print(f'Clicking Resource at x:{target_pos[0]} y:{target_pos[1]} attempt number:{self.failure_counter}')
             # move the mouse
@@ -556,8 +697,6 @@ class Bot:
 
     def destroy_opponent(self):
 
-        mouse = MouseController()
-        keyboard = KeyboardController()
 
         # if combat is over return to searching state
         if len(self.targets["end_combat"]) > 0:
@@ -568,7 +707,7 @@ class Bot:
             print(f'Clicking "ok" at x:{target_pos[0]} y:{target_pos[1]}')
             # move the mouse
             gui.moveTo(x=target_pos[0] / 2, y=target_pos[1] / 2)
-            mouse.click(Button.left)
+            self.mouse.click(Button.left)
             self.bot_combat_state = CombatState.ENDED
 
         # Click on the buttons to make sure combat is how it should be
@@ -577,7 +716,7 @@ class Bot:
             print(f'Clicking "strategic" at x:{target_pos[0]} y:{target_pos[1]}')
             # move the mouse
             gui.moveTo(x=target_pos[0] / 2, y=target_pos[1] / 2)
-            mouse.click(Button.left)
+            self.mouse.click(Button.left)
             gui.moveTo(x=0, y=10)
 
         if len(self.targets["socle_activate"]) > 0:
@@ -586,7 +725,7 @@ class Bot:
             print(f'Clicking "socle" at x:{target_pos[0]} y:{target_pos[1]}')
             # move the mouse
             gui.moveTo(x=target_pos[0] / 2, y=target_pos[1] / 2)
-            mouse.click(Button.left)
+            self.mouse.click(Button.left)
             gui.moveTo(x=0, y=10)
 
         # Behave according to the combat state
@@ -594,8 +733,8 @@ class Bot:
             """ Click on the closest target to the bot and validate READY"""
             sleep(0.5)
             print("Combat started")
-            keyboard.press("v")
-            keyboard.release("v")
+            self.keyboard.press("v")
+            self.keyboard.release("v")
             self.bot_combat_state = CombatState.DESTROYING
 
         elif self.bot_combat_state == CombatState.DESTROYING:
@@ -649,7 +788,7 @@ class Bot:
                             # You click on the coordinate
                             gui.moveTo(x=new_pos[0] / 2, y=new_pos[1] / 2)
                             gui.sleep_random(0.05, 0.95)
-                            mouse.click(Button.left)
+                            self.mouse.click(Button.left)
                             gui.moveTo(x=0, y=10)
 
                         else:
@@ -660,20 +799,20 @@ class Bot:
                         # You check if you are close enough to hit the opponent
                         if len(path) <= self.range:
                             print("In range")
-                            keyboard.press("a")
-                            keyboard.release("a")
+                            self.keyboard.press("a")
+                            self.keyboard.release("a")
                             gui.moveTo(x=enemy[0] / 2, y=enemy[1] / 2)
                             gui.moveTo(x=path[-1][0] / 2, y=path[-1][1] / 2)
                             gui.sleep_random(0.05, 0.5)
-                            mouse.click(Button.left)
+                            self.mouse.click(Button.left)
                             gui.sleep_random(0.05, 0.5)
 
-                            keyboard.press("a")
-                            keyboard.release("a")
+                            self.keyboard.press("a")
+                            self.keyboard.release("a")
                             gui.moveTo(x=enemy[0] / 2, y=enemy[1] / 2)
                             gui.moveTo(x=path[-1][0] / 2, y=path[-1][1] / 2)
                             gui.sleep_random(0.05, 0.5)
-                            mouse.click(Button.left)
+                            self.mouse.click(Button.left)
 
                             gui.moveTo(x=0, y=10)
 
@@ -689,15 +828,15 @@ class Bot:
                         adjacent = (0, 0)
                     # Create an invocation at that location
                     sleep(0.5)
-                    keyboard.press("é")
-                    keyboard.release("é")
+                    self.keyboard.press("é")
+                    self.keyboard.release("é")
                     gui.moveTo(x=adjacent[0] / 2, y=adjacent[1] / 2)
                     gui.sleep_random(0.05, 0.5)
-                    mouse.click(Button.left)
+                    self.mouse.click(Button.left)
                     gui.moveTo(x=0, y=10)
 
-                keyboard.press("v")
-                keyboard.release("v")
+                self.keyboard.press("v")
+                self.keyboard.release("v")
                 self.wait_a_bit = True
                 sleep(1)
 

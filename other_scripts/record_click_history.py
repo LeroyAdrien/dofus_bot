@@ -18,7 +18,6 @@ class Recorder:
 
         self.time_marker = time()
         self.filename = filename
-        self.flag = False
         print("Script Launched:")
 
         while True:
@@ -30,11 +29,8 @@ class Recorder:
 
         if button == mouse.Button.left:
             self.dico["mouse_clicks"].append([x, y])
-
-        if self.flag is True:
             self.dico["timings"].append(time() - self.time_marker)
-        else:
-            self.flag = True
+
 
         self.time_marker = time()
 
