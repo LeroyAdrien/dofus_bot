@@ -386,8 +386,8 @@ class Bot:
 
         self.bot_state = BotState.INITIALIZING
         self.bot_state = BotState.SEARCHING
-        self.bot_state = BotState.TRIP
-        self.bot_dropping_state = DroppingState.FARM2BANK
+        #self.bot_state = BotState.TRIP
+        #self.bot_dropping_state = DroppingState.FARM2BANK
 
         DEBUG = True
 
